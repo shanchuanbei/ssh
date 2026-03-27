@@ -41,7 +41,6 @@ esac
 # 4. 写入自定义 MOTD 脚本
 TARGET_PATH="/etc/profile.d/custom-motd.sh"
 
-# 使用单引号 'EOF' 确保脚本内部的 $ 符号不被安装脚本提前解析
 cat << 'EOF' > $TARGET_PATH
 #!/bin/bash
 
@@ -71,7 +70,7 @@ DISK_INFO=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
 DISK_PERCENT=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 UPTIME=$(uptime -p 2>/dev/null | sed 's/up //' || uptime | awk '{print $3,$4}' | sed 's/,//')
 
-# Docker 统计逻辑 (修复镜像不显示问题)
+# Docker 统计逻辑
 if command -v docker &> /dev/null; then
     RUNNING_APPS=$(docker ps --format "{{.Names}}" | sort)
     EXITED_APPS=$(docker ps -a --filter "status=exited" --filter "status=created" --format "{{.Names}}" | sort)
@@ -92,16 +91,16 @@ echo -e "🗂️  ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
 echo -e "🖥️  ${BLUE}系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
 echo -e "${BLUE}------------------------------------------------------------${RESET}"
 
-# Docker 展示
+# Docker 展示 (移除左侧多余空格实现对齐)
 echo -e "\n${YELLOW}🐳 Docker 状态:${RESET}   ${D_STATUS}"
 if [ -n "$RUNNING_APPS" ]; then
     for app in $RUNNING_APPS; do
-        echo -e "${GREEN}  ✅ $app 运行中${RESET}"
+        echo -e "${GREEN}✅ $app 运行中${RESET}"
     done
 fi
 if [ -n "$EXITED_APPS" ]; then
     for app in $EXITED_APPS; do
-        echo -e "${RED}  ❌ $app 未运行${RESET}"
+        echo -e "${RED}❌ $app 未运行${RESET}"
     done
 fi
 
@@ -120,4 +119,4 @@ EOF
 
 # 5. 设置权限
 chmod +x $TARGET_PATH
-echo "✅ 安装成功！请重新连接 SSH 终端查看效果。"
+echo "✅ 安装成功！图标已对齐左边。"
