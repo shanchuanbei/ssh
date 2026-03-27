@@ -14,12 +14,6 @@ true > /etc/issue.net
 chmod -x /etc/update-motd.d/*
 ```
 
-清空脚本
-
-```1c
-true > /etc/profile.d/custom-motd.sh
-```
-
 编辑脚本
 
 ```1c
@@ -32,7 +26,7 @@ nano /etc/profile.d/custom-motd.sh
 chmod +x /etc/profile.d/custom-motd.sh
 ```
 
-刷新当前环境
+刷新当前环境查看脚本效果
 
 ```1c
 source /etc/profile.d/custom-motd.sh
