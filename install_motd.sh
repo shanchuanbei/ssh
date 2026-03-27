@@ -2,7 +2,7 @@
 
 # 1. 权限检查
 if [ "$EUID" -ne 0 ]; then 
-  echo "错误：请以 root 权限运行此脚本 (使用 sudo 或切换至 root)"
+  echo "错误：请以 root 权限运行此脚本"
   exit 1
 fi
 
@@ -22,9 +22,7 @@ case "$OS" in
         true > /etc/motd
         true > /etc/issue
         true > /etc/issue.net
-        if [ -d /etc/update-motd.d ]; then
-            chmod -x /etc/update-motd.d/* 2>/dev/null || true
-        fi
+        [ -d /etc/update-motd.d ] && chmod -x /etc/update-motd.d/* 2>/dev/null || true
         ;;
     armbian)
         chmod -x /etc/update-motd.d/* 2>/dev/null || true
@@ -33,7 +31,6 @@ case "$OS" in
     alpine)
         true > /etc/motd
         true > /etc/issue
-        # 确保 Alpine 安装了必要的工具
         if ! command -v bash >/dev/null 2>&1; then apk add bash 2>/dev/null; fi
         ;;
     *)
@@ -44,6 +41,7 @@ esac
 # 4. 写入自定义 MOTD 脚本
 TARGET_PATH="/etc/profile.d/custom-motd.sh"
 
+# 使用单引号 'EOF' 确保脚本内部的 $ 符号不被安装脚本提前解析
 cat << 'EOF' > $TARGET_PATH
 #!/bin/bash
 
@@ -56,7 +54,6 @@ YELLOW='\033[1;33m'; RED='\033[1;31m'; RESET='\033[0m'
 
 # 基础信息采集
 USER_NAME=$(whoami)
-HOSTNAME=$(hostname)
 OS_VER=$(grep "PRETTY_NAME" /etc/os-release | cut -d '"' -f 2 | tr -d '"')
 
 # 时间与星期
@@ -74,13 +71,13 @@ DISK_INFO=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
 DISK_PERCENT=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 UPTIME=$(uptime -p 2>/dev/null | sed 's/up //' || uptime | awk '{print $3,$4}' | sed 's/,//')
 
-# Docker 详细状态
+# Docker 统计逻辑 (修复镜像不显示问题)
 if command -v docker &> /dev/null; then
     RUNNING_APPS=$(docker ps --format "{{.Names}}" | sort)
     EXITED_APPS=$(docker ps -a --filter "status=exited" --filter "status=created" --format "{{.Names}}" | sort)
     D_TOTAL=$(docker ps -a -q | wc -l)
     D_IMAGES=$(docker images -q | wc -l)
-    D_STATUS="✅ Docker 运行中：容器 $D_TOTAL 个，镜像 $D_IMAGES 个"
+    D_STATUS="✅ Docker 运行中：容器 ${D_TOTAL} 个，镜像 ${D_IMAGES} 个"
 else
     D_STATUS="❌ 未安装 Docker"
 fi
@@ -95,7 +92,7 @@ echo -e "🗂️  ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
 echo -e "🖥️  ${BLUE}系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
 echo -e "${BLUE}------------------------------------------------------------${RESET}"
 
-# Docker 统计展示
+# Docker 展示
 echo -e "\n${YELLOW}🐳 Docker 状态:${RESET}   ${D_STATUS}"
 if [ -n "$RUNNING_APPS" ]; then
     for app in $RUNNING_APPS; do
@@ -121,9 +118,6 @@ fi
 echo ""
 EOF
 
-# 5. 设置权限并立即生效
+# 5. 设置权限
 chmod +x $TARGET_PATH
-echo "------------------------------------------------------------"
-echo "✅ 安装成功！"
-echo "提示：请重新连接 SSH 终端查看新界面。"
-echo "------------------------------------------------------------"
+echo "✅ 安装成功！请重新连接 SSH 终端查看效果。"
