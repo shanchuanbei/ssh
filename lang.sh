@@ -4,7 +4,7 @@
 [ "$EUID" -ne 0 ] && exit 1
 [ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
 
-echo "正在瞬间注入中文配置..."
+echo "正在快速配置语言环境..."
 
 # 2. 核心逻辑：只写文件，不跑命令 (跳过 locale-gen)
 if [ "$ID" == "alpine" ]; then
