@@ -91,16 +91,16 @@ echo -e "🗂️  ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
 echo -e "🖥️  ${BLUE}系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
 echo -e "${BLUE}------------------------------------------------------------${RESET}"
 
-# Docker 展示 (移除左侧多余空格实现对齐)
+# Docker 展示
 echo -e "\n${YELLOW}🐳 Docker 状态:${RESET}   ${D_STATUS}"
 if [ -n "$RUNNING_APPS" ]; then
     for app in $RUNNING_APPS; do
-        echo -e "${GREEN}✅ $app 运行中${RESET}"
+echo -e "${GREEN}✅ $app 运行中${RESET}"
     done
 fi
 if [ -n "$EXITED_APPS" ]; then
     for app in $EXITED_APPS; do
-        echo -e "${RED}❌ $app 未运行${RESET}"
+echo -e "${RED}❌ $app 未运行${RESET}"
     done
 fi
 
@@ -119,4 +119,4 @@ EOF
 
 # 5. 设置权限
 chmod +x $TARGET_PATH
-echo "✅ 安装成功！图标已对齐左边。"
+echo "✅ 安装成功！已强制移除所有缩进。"
