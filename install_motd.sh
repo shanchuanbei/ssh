@@ -44,7 +44,6 @@ esac
 # 4. 写入自定义 MOTD 脚本
 TARGET_PATH="/etc/profile.d/custom-motd.sh"
 
-# 使用 cat 写入，确保内部变量在运行时才解析
 cat << 'EOF' > $TARGET_PATH
 #!/bin/bash
 
@@ -57,6 +56,7 @@ YELLOW='\033[1;33m'; RED='\033[1;31m'; RESET='\033[0m'
 
 # 基础信息采集
 USER_NAME=$(whoami)
+HOSTNAME=$(hostname)
 OS_VER=$(grep "PRETTY_NAME" /etc/os-release | cut -d '"' -f 2 | tr -d '"')
 
 # 时间与星期
@@ -68,24 +68,19 @@ case "$WEEKDAY_NUM" in
     7) WEEKDAY="星期日" ;; *) WEEKDAY="未知" ;;
 esac
 
-# 内存与磁盘 (针对 Alpine/Armbian 优化)
+# 内存与磁盘
 MEM_INFO=$(free -h 2>/dev/null | grep -Ei "mem|内存" | awk '{print $3 " / " $2}' || echo "N/A")
 DISK_INFO=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
 DISK_PERCENT=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 UPTIME=$(uptime -p 2>/dev/null | sed 's/up //' || uptime | awk '{print $3,$4}' | sed 's/,//')
-# 仅 Debian 系显示更新记录
-if [ -f /var/log/apt/history.log ]; then
-    LAST_UPDATE=$(stat -c %y /var/log/apt/history.log 2>/dev/null | cut -d '.' -f1)
-else
-    LAST_UPDATE="N/A (Non-Debian)"
-fi
 
-# Docker 状态
+# Docker 详细状态
 if command -v docker &> /dev/null; then
     RUNNING_APPS=$(docker ps --format "{{.Names}}" | sort)
     EXITED_APPS=$(docker ps -a --filter "status=exited" --filter "status=created" --format "{{.Names}}" | sort)
     D_TOTAL=$(docker ps -a -q | wc -l)
-    D_STATUS="✅ Docker 运行中：容器 $D_TOTAL 个"
+    D_IMAGES=$(docker images -q | wc -l)
+    D_STATUS="✅ Docker 运行中：容器 $D_TOTAL 个，镜像 $D_IMAGES 个"
 else
     D_STATUS="❌ 未安装 Docker"
 fi
@@ -97,32 +92,38 @@ echo -e "⏰ ${BLUE}当前时间:${RESET}    ${CYAN}${CURRENT_DATE} (${WEEKDAY})
 echo -e "🆙 ${BLUE}运行时间:${RESET}    ${CYAN}${UPTIME}${RESET}"
 echo -e "💾 ${BLUE}内存使用:${RESET}    ${CYAN}${MEM_INFO}${RESET}"
 echo -e "🗂️  ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
-echo -e "📦 系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
+echo -e "🖥️  ${BLUE}系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
 echo -e "${BLUE}------------------------------------------------------------${RESET}"
 
+# Docker 统计展示
 echo -e "\n${YELLOW}🐳 Docker 状态:${RESET}   ${D_STATUS}"
 if [ -n "$RUNNING_APPS" ]; then
-    for app in $RUNNING_APPS; do echo -e "${GREEN}  ✅ $app 运行中${RESET}"; done
+    for app in $RUNNING_APPS; do
+        echo -e "${GREEN}  ✅ $app 运行中${RESET}"
+    done
 fi
 if [ -n "$EXITED_APPS" ]; then
-    for app in $EXITED_APPS; do echo -e "${RED}  ❌ $app 未运行${RESET}"; done
+    for app in $EXITED_APPS; do
+        echo -e "${RED}  ❌ $app 未运行${RESET}"
+    done
 fi
 
-# 最近登录 (部分系统可能没有 last 命令)
+# 最近登录记录
 if command -v last &> /dev/null; then
     echo -e "\n${YELLOW}🛡️ 最近登录记录:${RESET}"
     last -i -n 3 | grep -vE "reboot|wtmp" | head -n 3
 fi
 
-# 磁盘告警
+# 磁盘预警
 if [ "$DISK_PERCENT" -ge 70 ] 2>/dev/null; then
     echo -e "\n${RED}💔 警告：磁盘使用率已达到 ${DISK_PERCENT}%，请及时清理！${RESET}"
 fi
 echo ""
 EOF
 
-# 5. 设置权限并执行
+# 5. 设置权限并立即生效
 chmod +x $TARGET_PATH
 echo "------------------------------------------------------------"
-echo "✅ 安装成功！请重新连接 SSH 或执行 'source $TARGET_PATH' 查看效果。"
+echo "✅ 安装成功！"
+echo "提示：请重新连接 SSH 终端查看新界面。"
 echo "------------------------------------------------------------"
