@@ -1,43 +1,37 @@
 #!/bin/bash
 
-# 1. 权限检查
+# 1. 权限与系统识别
 [ "$EUID" -ne 0 ] && exit 1
-
-# 2. 识别系统
 [ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
 
-echo "正在极速配置语言环境..."
+echo "正在瞬间注入中文配置..."
 
-# 3. 核心加速逻辑：只有命令不存在时才安装，绝不主动 update
-if ! command -v locale-gen &> /dev/null; then
-    echo "补全基础组件..."
-    apt-get update -qq && apt-get install -y locales -qq
-fi
-
-# 4. 暴力配置（这一步是本地操作，瞬间完成）
-# 强制写入配置，不管之前有没有
+# 2. 核心逻辑：只写文件，不跑命令 (跳过 locale-gen)
 if [ "$ID" == "alpine" ]; then
     apk add --no-cache musl-locales musl-locales-lang > /dev/null 2>&1
     echo "export LANG=zh_CN.UTF-8" > /etc/profile.d/lang.sh
 else
-    # Debian/Ubuntu/Armbian 通用
-    echo "zh_CN.UTF-8 UTF-8" > /etc/locale.gen
-    # 只针对性生成中文，不 purge 其他，速度最快
-    /usr/sbin/locale-gen zh_CN.UTF-8 > /dev/null 2>&1
-    
-    # 直接覆盖配置文件
+    # 这一步是关键：直接把配置塞进环境文件，完全不调用 locale-gen
+    # 只要系统里已经有 zh_CN 的编译文件(你之前跑过)，这一步就是 0 秒
     cat << 'EOF' > /etc/default/locale
 LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
 LC_ALL=zh_CN.UTF-8
 EOF
+
+    # 只有当系统完全没生成过中文时，才在后台默默生成一下
+    if [[ $(locale -a 2>/dev/null) != *"zh_CN.utf8"* ]]; then
+        echo "检测到环境缺失，后台修复中..."
+        # 使用 & 放到后台，不让用户在屏幕前傻等
+        (echo "zh_CN.UTF-8 UTF-8" > /etc/locale.gen && /usr/sbin/locale-gen zh_CN.UTF-8 > /dev/null 2>&1) &
+    fi
 fi
 
-# 5. 强制刷新当前会话（静默，不报错）
-export LANG=zh_CN.UTF-8 > /dev/null 2>&1
-export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
+# 3. 立即强制生效
+export LANG=zh_CN.UTF-8
+export LC_ALL=zh_CN.UTF-8
 
 echo "------------------------------------------------------------"
-echo "✅ 系统语言与软件汉化已完成！"
+echo "✅ 系统语言与软件汉化已完成。"
 echo "📢 请重新连接 SSH"
 echo "------------------------------------------------------------"
