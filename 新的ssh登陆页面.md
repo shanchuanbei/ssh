@@ -14,7 +14,7 @@ true > /etc/issue.net
 chmod -x /etc/update-motd.d/*
 ```
 
-编辑脚本
+编辑脚本（代码在下面，粘贴完以后ctrl+x按Y保存退出）
 
 ```1c
 nano /etc/profile.d/custom-motd.sh
