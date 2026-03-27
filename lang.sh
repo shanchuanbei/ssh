@@ -1,39 +1,31 @@
 #!/bin/bash
 
 # 1. 权限检查
-[ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
+[ "$EUID" -ne 0 ] && exit 1
 
 # 2. 识别系统
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
-else
-    OS="unknown"
+[ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
+
+echo "正在极速配置语言环境..."
+
+# 3. 核心加速逻辑：只有命令不存在时才安装，绝不主动 update
+if ! command -v locale-gen &> /dev/null; then
+    echo "补全基础组件..."
+    apt-get update -qq && apt-get install -y locales -qq
 fi
 
-echo "正在检测并配置系统语言..."
-
-# 3. 智能检测：如果系统已经有 zh_CN.utf8 且 nano 有翻译，直接跳过所有安装
-if [[ $(locale -a 2>/dev/null) == *"zh_CN.utf8"* ]] && [[ -d /usr/share/nano ]] && [[ $(ls /usr/share/nano/ | grep -q "zh_CN") || $? -eq 0 ]]; then
-    echo "✅ 检测到中文环境已完整，跳过安装步骤。"
+# 4. 暴力配置（这一步是本地操作，瞬间完成）
+# 强制写入配置，不管之前有没有
+if [ "$ID" == "alpine" ]; then
+    apk add --no-cache musl-locales musl-locales-lang > /dev/null 2>&1
+    echo "export LANG=zh_CN.UTF-8" > /etc/profile.d/lang.sh
 else
-    echo "正在补全语言环境 (仅在必要时运行)..."
-    
-    if [[ "$OS" == "ubuntu" ]]; then
-        # 只有 Ubuntu 需要这个包
-        apt-get update -qq && apt-get install -y locales language-pack-zh-hans -qq
-    elif [[ "$OS" == "debian" || "$OS" == "armbian" ]]; then
-        # Debian/Armbian 只需要 locales
-        apt-get update -qq && apt-get install -y locales -qq
-    elif [[ "$OS" == "alpine" ]]; then
-        apk add --no-cache musl-locales musl-locales-lang > /dev/null 2>&1
-    fi
-fi
-
-# 4. 写入配置（这一步极快，每次运行都不碍事）
-if [[ "$OS" != "alpine" ]]; then
+    # Debian/Ubuntu/Armbian 通用
     echo "zh_CN.UTF-8 UTF-8" > /etc/locale.gen
+    # 只针对性生成中文，不 purge 其他，速度最快
     /usr/sbin/locale-gen zh_CN.UTF-8 > /dev/null 2>&1
+    
+    # 直接覆盖配置文件
     cat << 'EOF' > /etc/default/locale
 LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
@@ -41,11 +33,11 @@ LC_ALL=zh_CN.UTF-8
 EOF
 fi
 
-# 5. 立即生效
+# 5. 强制刷新当前会话（静默，不报错）
 export LANG=zh_CN.UTF-8 > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
 
 echo "------------------------------------------------------------"
-echo -e "\033[1;32m✅ 配置完成！\033[0m"
+echo "✅ 系统语言与软件汉化已完成！"
 echo "📢 请重新连接 SSH"
 echo "------------------------------------------------------------"
