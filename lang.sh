@@ -1,5 +1,4 @@
 #!/bin/bash
-# 自动切换中文环境
 if [[ $(locale -a) != *"zh_CN.utf8"* ]]; then
     echo "检测到非中文环境，正在快速切换..."
     apt-get update -qq && apt-get install -y locales -qq
