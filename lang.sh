@@ -4,7 +4,7 @@
 [ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
 [ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
 
-echo "正在尝试快速切换系统语言为 zh_CN.UTF-8..."
+echo "正在快速切换系统语言为 zh_CN.UTF-8..."
 
 # 3. 核心逻辑 (针对 Debian/Ubuntu/Armbian)
 if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
@@ -30,7 +30,7 @@ if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
 
     # 只有缺失时才编译
     if [[ $(locale -a 2>/dev/null) != *"zh_CN.utf8"* ]]; then
-        echo "正在生成本地化索引..."
+        echo "正在编译语言环境..."
         /usr/sbin/locale-gen zh_CN.UTF-8 > /dev/null 2>&1
     fi
 
