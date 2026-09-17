@@ -87,9 +87,9 @@ echo -e "${BLUE}------------------------------------------------------------${RE
 echo -e "⏰ ${BLUE}当前时间:${RESET}    ${CYAN}${CURRENT_DATE} (${WEEKDAY})${RESET}"
 echo -e "🆙 ${BLUE}运行时间:${RESET}    ${CYAN}${UPTIME}${RESET}"
 echo -e "💾 ${BLUE}内存使用:${RESET}    ${CYAN}${MEM_INFO}${RESET}"
-echo -e "🗂️  ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
+echo -e "🗂️ ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
 echo -e "📦 系统更新:${RESET}    ${CYAN}${LAST_UPDATE}${RESET}"
-echo -e "🖥️  系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
+echo -e "🖥️ 系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
 echo -e "${BLUE}------------------------------------------------------------${RESET}"
 
 # 5. Docker 统计
