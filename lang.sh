@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# 全系统通用中文环境脚本 (抗 SSH 变量覆盖 / 秒级切换 / 支持 Alpine nano)
+# 全系统 Linux 中文环境一键切换脚本 (含 Alpine ash 适配与抗 SSH 压制)
 # =================================================================
 
 set -e
@@ -10,11 +10,11 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo -e "\n[1/4] 📦 检查并补全系统与软件语言包..."
+echo "[1/3] 📦 正在检测并安装系统语言包与软件翻译包..."
 
-# 1. 自动识别并补全依赖（已安装则秒级跳过）
+# 1. 判断 Alpine 系统并强行补全 Alpine 专属的翻译依赖
 if [ -f /etc/alpine-release ] || grep -q "alpine" /etc/os-release 2>/dev/null; then
-    apk add --no-cache musl-locales musl-locales-lang nano-lang >/dev/null 2>&1 || true
+    apk add --no-cache musl-locales musl-locales-lang nano-lang gettext >/dev/null 2>&1 || true
 elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq >/dev/null 2>&1
@@ -28,41 +28,21 @@ elif command -v yum >/dev/null 2>&1; then
     localedef -c -i zh_CN -f UTF-8 zh_CN.UTF-8 >/dev/null 2>&1 || true
 fi
 
-echo "[2/4] 🔒 屏蔽 SSH 客户端传递的英文环境变量..."
-# 注释掉 sshd_config 中的 AcceptEnv，防止客户端把 LANG/LC_* 覆盖回英文
-if [ -f /etc/ssh/sshd_config ]; then
-    sed -i 's/^AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config 2>/dev/null || true
-    rc-service sshd restart 2>/dev/null || systemctl restart sshd 2>/dev/null || pkill -HUP sshd 2>/dev/null || true
-fi
+echo "[2/3] ⚙️ 写入全局与各 Shell (ash/bash) 配置文件..."
 
-echo "[3/4] ⚙️ 强行锁定全域环境变量 (LANG / LC_ALL / LC_MESSAGES / LANGUAGE)..."
+# 定义中文环境变量块
+ENV_BLOCK='
+export LANG=zh_CN.UTF-8
+export LC_ALL=zh_CN.UTF-8
+export LC_MESSAGES=zh_CN.UTF-8
+export LANGUAGE=zh_CN:zh
+'
 
-# 写入 /etc/environment (SSH 登录最高优先级读取)
-cat << 'EOF' > /etc/environment
-LANG=zh_CN.UTF-8
-LC_ALL=zh_CN.UTF-8
-LC_MESSAGES=zh_CN.UTF-8
-LANGUAGE=zh_CN:zh
-EOF
+# 写入 Systemd / 系统全局配置
+echo "LANG=zh_CN.UTF-8" > /etc/locale.conf
+echo "LC_ALL=zh_CN.UTF-8" >> /etc/locale.conf
 
-# 写入配置文件
-cat << 'EOF' > /etc/locale.conf
-LANG=zh_CN.UTF-8
-LC_ALL=zh_CN.UTF-8
-LC_MESSAGES=zh_CN.UTF-8
-LANGUAGE=zh_CN:zh
-EOF
-
-if [ -d /etc/default ]; then
-    cat << 'EOF' > /etc/default/locale
-LANG=zh_CN.UTF-8
-LC_ALL=zh_CN.UTF-8
-LC_MESSAGES=zh_CN.UTF-8
-LANGUAGE=zh_CN:zh
-EOF
-fi
-
-# 写入全局 profile.d
+# 写入 /etc/profile.d/ 供所有交互式 Shell 读取
 mkdir -p /etc/profile.d
 cat << 'EOF' > /etc/profile.d/locale.sh
 export LANG=zh_CN.UTF-8
@@ -72,19 +52,32 @@ export LANGUAGE=zh_CN:zh
 EOF
 chmod +x /etc/profile.d/locale.sh
 
-# 写入用户 Profile 强行覆写
-PROFILES=( "/root/.profile" "/root/.bashrc" "$HOME/.profile" "$HOME/.bashrc" "/etc/bash.bashrc" )
-for p in "${PROFILES[@]}"; do
-    if [ -f "$p" ]; then
-        sed -i '/export LANG=/d' "$p" 2>/dev/null || true
-        sed -i '/export LC_ALL=/d' "$p" 2>/dev/null || true
-        sed -i '/export LC_MESSAGES=/d' "$p" 2>/dev/null || true
-        sed -i '/export LANGUAGE=/d' "$p" 2>/dev/null || true
-        echo "export LANG=zh_CN.UTF-8" >> "$p"
-        echo "export LC_ALL=zh_CN.UTF-8" >> "$p"
-        echo "export LC_MESSAGES=zh_CN.UTF-8" >> "$p"
-        echo "export LANGUAGE=zh_CN:zh" >> "$p"
+# 覆盖针对 Alpine (ash) 和常规 Linux (bash) 的用户配置文件
+TARGET_FILES=(
+    "/etc/profile"
+    "/root/.profile"      # Alpine ash 读取的核心文件
+    "/root/.bashrc"       # Debian/CentOS bash 读取的文件
+    "$HOME/.profile"
+    "$HOME/.bashrc"
+)
+
+for file in "${TARGET_FILES[@]}"; do
+    if [ -f "$file" ] || [ "$file" = "/root/.profile" ]; then
+        # 先清理旧的 LANG/LC 变量，防止重复
+        sed -i '/export LANG=/d' "$file" 2>/dev/null || true
+        sed -i '/export LC_ALL=/d' "$file" 2>/dev/null || true
+        sed -i '/export LC_MESSAGES=/d' "$file" 2>/dev/null || true
+        sed -i '/export LANGUAGE=/d' "$file" 2>/dev/null || true
+        
+        # 追加最新中文配置
+        echo "$ENV_BLOCK" >> "$file"
     fi
 done
 
-echo -e "\n✅ 配置完成！"
+echo "[3/3] 🚀 强制刷新当前会话环境变量..."
+export LANG=zh_CN.UTF-8
+export LC_ALL=zh_CN.UTF-8
+export LC_MESSAGES=zh_CN.UTF-8
+export LANGUAGE=zh_CN:zh
+
+echo -e "\n✅ 配置完成！请直接输入 nano 验证。"
