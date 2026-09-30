@@ -29,6 +29,8 @@ case "$OS" in
     alpine)
         true > /etc/motd 2>/dev/null
         true > /etc/issue 2>/dev/null
+        # 确保 Alpine 具备登录日志记录文件
+        [ -f /var/log/wtmp ] || touch /var/log/wtmp 2>/dev/null
         if ! command -v bash >/dev/null 2>&1; then apk add bash 2>/dev/null; fi
         ;;
     *)
@@ -36,7 +38,7 @@ case "$OS" in
         ;;
 esac
 
-# 3. 写入四系统通用的 custom-motd.sh 脚本
+# 3. 写入 custom-motd.sh 脚本
 TARGET_PATH="/etc/profile.d/custom-motd.sh"
 
 cat << 'EOF' > $TARGET_PATH
@@ -54,7 +56,7 @@ YELLOW='\033[1;33m'; RED='\033[1;31m'; RESET='\033[0m'
 USER_NAME=$(whoami)
 HOSTNAME=$(hostname 2>/dev/null || uname -n)
 
-# 修复：防止 /etc/os-release 存在多条 PRETTY_NAME 导致换行重复
+# 系统版本 (防止多行 PRETTY_NAME 重复)
 OS_VER=$(grep -m 1 "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d '=' -f 2 | tr -d '"')
 [ -z "$OS_VER" ] && OS_VER="Unknown OS"
 
@@ -135,9 +137,9 @@ if [ -n "$EXITED_APPS" ]; then
     done
 fi
 
-# 6. 最近登录记录 (跨平台兼容模式)
+# 6. 最近登录记录 (彻底剔除 BusyBox 表头与系统关重启记录)
 if command -v last &> /dev/null; then
-    LAST_LOGS=$(last 2>/dev/null | grep -vE "reboot|wtmp|^$" | head -n 3)
+    LAST_LOGS=$(last 2>/dev/null | grep -vE "reboot|wtmp|^$|^USER|LOGIN" | head -n 3)
     if [ -n "$LAST_LOGS" ]; then
         echo -e "\n${YELLOW}🛡️ 最近登录记录:${RESET}"
         echo "$LAST_LOGS" | awk '{printf "  %-8s %-10s %-15s %s %s %s %s\n", $1, $2, $3, $4, $5, $6, $7}'
@@ -153,4 +155,4 @@ EOF
 
 # 4. 设置权限
 chmod +x $TARGET_PATH
-echo "✅ 安装成功！已成功兼容 Debian / Ubuntu / Armbian / Alpine。请重新连接 SSH 终端验证效果。"
+echo "✅ 修复完成！重新登录 SSH 验证即可（注：Alpine 运行此命令后，下一次登录开始便会自动记录并正常展示）。"
