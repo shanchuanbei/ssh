@@ -1,13 +1,11 @@
 #!/bin/bash
 
-# =========================================================
-# 系统语言一键极速切换脚本 (zh_CN.UTF-8)
-# 支持：Debian / Ubuntu / Armbian / Alpine
-# 特点：解压预制语言包，免 apt/localedef 编译，秒级生效
-# =========================================================
-
 # 1. 检查 root 权限
 [ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
+
+# 临时重置变量，避免解压前因为找不到 zh_CN 语言包而报 setlocale 警告
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
 
 # 2. 识别操作系统类型
 [ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
@@ -20,7 +18,6 @@ echo "正在极速切换系统语言为 zh_CN.UTF-8..."
 # 4. 核心处理逻辑 (Debian / Ubuntu / Armbian)
 if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
     
-    # 检查网络下载工具
     FETCH_CMD=""
     if command -v curl &> /dev/null; then
         FETCH_CMD="curl -sL"
@@ -32,22 +29,18 @@ if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
 
     echo "正在拉取并部署语言包 (几秒内完成)..."
     
-    # 管道流式解压至根目录，并检测是否执行成功
     if ! $FETCH_CMD "$PACKAGE_URL" | tar -zx -C / > /dev/null 2>&1; then
         echo "错误：语言包下载或解压失败，请检查网络是否能连接 GitHub" && exit 1
     fi
 
-    # 清除极简系统的 dpkg 排除限制 (以防影响后续软件)
     [ -f /etc/dpkg/dpkg.cfg.d/excludes ] && rm -f /etc/dpkg/dpkg.cfg.d/excludes > /dev/null 2>&1
 
-    # 写入系统默认 Locale 配置文件
     cat << 'EOF' > /etc/default/locale
 LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
 LC_ALL=zh_CN.UTF-8
 EOF
 
-    # 写入全局环境变量，确保 SSH 登录后自动加载
     cat << 'EOF' > /etc/profile.d/zh_CN.sh
 export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
@@ -55,14 +48,11 @@ export LC_ALL=zh_CN.UTF-8
 EOF
 
 elif [[ "$ID" == "alpine" ]]; then
-    # Alpine Linux 专门处理
     apk add --no-cache musl-locales musl-locales-lang > /dev/null 2>&1
     echo "export LANG=zh_CN.UTF-8" > /etc/profile.d/lang.sh
-else
-    echo "警告：未识别的系统类型 ($ID)，尝试强制应用环境变量..."
 fi
 
-# 5. 强制刷新当前 Shell 临时生效
+# 解压完成后，正式刷新为中文环境
 export LANG=zh_CN.UTF-8 > /dev/null 2>&1
 export LANGUAGE=zh_CN:zh > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
