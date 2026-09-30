@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 全平台极速中文环境与预编译 nano 一键部署脚本
+# 全平台极速中文环境与预编译 nano 一键部署脚本 (终极防 SSH 注入版)
 # 支持系统：Debian / Ubuntu / Armbian / Alpine
 # 适配仓库：shanchuanbei/ssh
 # =========================================================
@@ -9,7 +9,7 @@
 # 1. 检查 root 权限
 [ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
 
-# 临时重置变量，避免解压/安装过程抛出 setlocale 警告
+# 临时重置变量，避免安装过程抛出 setlocale 警告
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
@@ -63,12 +63,23 @@ if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
         localedef -i zh_CN -f UTF-8 zh_CN.UTF-8 > /dev/null 2>&1
     fi
 
-    # 5.5 写入 Debian/Ubuntu 默认 Locale 配置
+    # 5.5 写入 PAM 与系统级默认 Locale 配置
     cat << 'EOF' > /etc/default/locale
 LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
 LC_ALL=zh_CN.UTF-8
 EOF
+
+    cat << 'EOF' > /etc/environment
+LANG=zh_CN.UTF-8
+LANGUAGE=zh_CN:zh
+LC_ALL=zh_CN.UTF-8
+EOF
+
+    # 5.6 关键防御：关闭 SSHD 接收客户端环境变量（防止客户端强行注入英文变量）
+    sed -i 's/^[[:space:]]*AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config 2>/dev/null
+    [ -d /etc/ssh/sshd_config.d ] && sed -i 's/^[[:space:]]*AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null
 
 elif [[ "$ID" == "alpine" ]]; then
     echo "检测到 Alpine (musl)，正在部署语言包与预编译 nano..."
@@ -86,42 +97,37 @@ else
     echo "警告：未识别的系统类型 ($ID)，尝试应用通用设置..."
 fi
 
-# 6. 全局环境变量持久化（双保险拦截 SSH 客户端传入的 C / POSIX 变量）
-# 6.1 写入全局登录 Profile 脚本
+# 6. 全局环境变量无条件覆盖持久化
 cat << 'EOF' > /etc/profile.d/zh_CN.sh
-# 清除 SSH 客户端可能强行注入的 C / POSIX 英文环境
-[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
-[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
-
 export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
 
-# 6.2 针对 Debian/Ubuntu 写入 /etc/bash.bashrc (解决 SSH 交互式 Shell 覆盖问题)
 if [ -f /etc/bash.bashrc ]; then
-    sed -i '/LC_ALL=zh_CN.UTF-8/d' /etc/bash.bashrc
+    sed -i '/LC_ALL=zh_CN.UTF-8/d' /etc/bash.bashrc 2>/dev/null
     cat << 'EOF' >> /etc/bash.bashrc
-
-# 清除 SSH 客户端可能强行注入的 C / POSIX 英文环境
-[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
-[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
-
 export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
 fi
 
-# 7. 强制刷新当前 Shell 环境变量
-[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
-[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
+if [ -f ~/.bashrc ]; then
+    sed -i '/LC_ALL=zh_CN.UTF-8/d' ~/.bashrc 2>/dev/null
+    cat << 'EOF' >> ~/.bashrc
+export LANG=zh_CN.UTF-8
+export LANGUAGE=zh_CN:zh
+export LC_ALL=zh_CN.UTF-8
+EOF
+fi
 
+# 7. 立即强制刷新当前 Shell 环境变量
 export LANG=zh_CN.UTF-8 > /dev/null 2>&1
 export LANGUAGE=zh_CN:zh > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
 
 echo "------------------------------------------------------------"
-echo -e "\033[1;32m✅ YES 部署完成！预编译 nano 与中文环境已无缝就绪\033[0m"
+echo -e "\033[1;32m✅ 部署完成666！预编译 nano 与中文环境完美成功\033[0m"
 echo -e "\033[1;33m📢 请重新连接 SSH 或运行 'source /etc/profile' 查看效果\033[0m"
 echo "------------------------------------------------------------"
