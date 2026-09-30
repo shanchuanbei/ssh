@@ -1,4 +1,4 @@
-### **一键脚本：** 经测试 Debian，Ubuntu，Armbian 可以完美运行，Alpine未测试 没这个系统
+### **一键脚本：** 经测试 Debian，Ubuntu，Armbian，Alpine 均可以完美运行！！！
 
 ##### 实用的linux系统改中文脚本
 
