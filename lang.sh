@@ -3,14 +3,13 @@
 # =========================================================
 # 全平台极速中文环境与预编译 nano 一键部署脚本
 # 支持系统：Debian / Ubuntu / Armbian / Alpine
-# 仓库：shanchuanbei/ssh
-# 特点：秒级注入预编译 nano，彻底抛弃 apt 安装，完美支持中文界面
+# 适配仓库：shanchuanbei/ssh
 # =========================================================
 
 # 1. 检查 root 权限
 [ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
 
-# 临时重置变量，避免安装过程抛出 setlocale 警告
+# 临时重置变量，避免解压/安装过程抛出 setlocale 警告
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
@@ -40,18 +39,19 @@ fi
 
 # 5. 分系统自动化部署
 if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
-    echo "检测到 Glibc 系统 ($ID)，部署语言包与预编译 nano..."
+    echo "检测到 Glibc 系统 ($ID)，正在部署语言包与预编译 nano..."
 
     # 5.1 解压中文翻译字典 (.mo 文件)
     $FETCH_CMD "$GLIBC_PACK_URL" | tar -zx -C / > /dev/null 2>&1
     [ -f /etc/dpkg/dpkg.cfg.d/excludes ] && rm -f /etc/dpkg/dpkg.cfg.d/excludes > /dev/null 2>&1
 
-    # 5.2 瞬间注入预编译的 Debian 版中文 nano 二进制
+    # 5.2 注入预编译的 Debian 版中文 nano 二进制
     $FETCH_OUT /usr/bin/nano "$DEBIAN_NANO_URL" > /dev/null 2>&1
     chmod +x /usr/bin/nano
 
-    # 5.3 检查并自动补全 locales 基础组件（仅在必要时）
+    # 5.3 检查并自动补全 locales 基础组件
     if ! command -v locale-gen &> /dev/null; then
+        echo "正在补全 locales 组件..."
         apt-get update -qq && apt-get install -y -qq locales > /dev/null 2>&1
     fi
 
@@ -71,7 +71,7 @@ LC_ALL=zh_CN.UTF-8
 EOF
 
 elif [[ "$ID" == "alpine" ]]; then
-    echo "检测到 Alpine (musl)，部署语言包与预编译 nano..."
+    echo "检测到 Alpine (musl)，正在部署语言包与预编译 nano..."
 
     # 5.1 安装 musl 基础编码库
     apk add --no-cache musl-locales > /dev/null 2>&1
@@ -86,9 +86,10 @@ else
     echo "警告：未识别的系统类型 ($ID)，尝试应用通用设置..."
 fi
 
-# 6. 写入全局环境变量配置文件（自动清洗 SSH 客户端注入的 C / POSIX 变量）
+# 6. 全局环境变量持久化（双保险拦截 SSH 客户端传入的 C / POSIX 变量）
+# 6.1 写入全局登录 Profile 脚本
 cat << 'EOF' > /etc/profile.d/zh_CN.sh
-# 清除 SSH 客户端可能注入的英文环境标识
+# 清除 SSH 客户端可能强行注入的 C / POSIX 英文环境
 [ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
 [ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
 
@@ -97,7 +98,22 @@ export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
 
-# 7. 立即刷新当前 Shell 环境变量
+# 6.2 针对 Debian/Ubuntu 写入 /etc/bash.bashrc (解决 SSH 交互式 Shell 覆盖问题)
+if [ -f /etc/bash.bashrc ]; then
+    sed -i '/LC_ALL=zh_CN.UTF-8/d' /etc/bash.bashrc
+    cat << 'EOF' >> /etc/bash.bashrc
+
+# 清除 SSH 客户端可能强行注入的 C / POSIX 英文环境
+[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
+[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
+
+export LANG=zh_CN.UTF-8
+export LANGUAGE=zh_CN:zh
+export LC_ALL=zh_CN.UTF-8
+EOF
+fi
+
+# 7. 强制刷新当前 Shell 环境变量
 [ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
 [ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
 
@@ -106,6 +122,6 @@ export LANGUAGE=zh_CN:zh > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
 
 echo "------------------------------------------------------------"
-echo -e "\033[1;32m✅ 部署完成！预编译 nano 与中文环境已无缝就绪\033[0m"
+echo -e "\033[1;32m✅ YES 部署完成！预编译 nano 与中文环境已无缝就绪\033[0m"
 echo -e "\033[1;33m📢 请重新连接 SSH 或运行 'source /etc/profile' 查看效果\033[0m"
 echo "------------------------------------------------------------"
