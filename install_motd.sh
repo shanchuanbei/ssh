@@ -53,7 +53,9 @@ YELLOW='\033[1;33m'; RED='\033[1;31m'; RESET='\033[0m'
 # 2. 基础信息采集
 USER_NAME=$(whoami)
 HOSTNAME=$(hostname 2>/dev/null || uname -n)
-OS_VER=$(grep "PRETTY_NAME" /etc/os-release 2>/dev/null | cut -d '"' -f 2)
+
+# 修复：防止 /etc/os-release 存在多条 PRETTY_NAME 导致换行重复
+OS_VER=$(grep -m 1 "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d '=' -f 2 | tr -d '"')
 [ -z "$OS_VER" ] && OS_VER="Unknown OS"
 
 # 时间与星期
@@ -65,7 +67,7 @@ case "$WEEKDAY_NUM" in
     7) WEEKDAY="星期日" ;; *) WEEKDAY="未知" ;;
 esac
 
-# 统一读取 /proc/uptime 计算运行时间（实现四系统中文排版完全一致）
+# 统一读取 /proc/uptime 计算运行时间
 if [ -f /proc/uptime ]; then
     UPTIME=$(awk '{
         up=int($1);
