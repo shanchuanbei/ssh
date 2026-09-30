@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 全平台极速中文环境与预编译 nano 一键部署脚本 (终极防 SSH 注入版)
+# 全平台极速中文环境与预编译 nano 一键部署脚本 (终极防 SSH 还原版)
 # 支持系统：Debian / Ubuntu / Armbian / Alpine
 # 适配仓库：shanchuanbei/ssh
 # =========================================================
@@ -76,9 +76,17 @@ LANGUAGE=zh_CN:zh
 LC_ALL=zh_CN.UTF-8
 EOF
 
-    # 5.6 关键防御：关闭 SSHD 接收客户端环境变量（防止客户端强行注入英文变量）
+    # 5.6 彻底清除主配置与 sshd_config.d 子配置文件中的 AcceptEnv
     sed -i 's/^[[:space:]]*AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config 2>/dev/null
-    [ -d /etc/ssh/sshd_config.d ] && sed -i 's/^[[:space:]]*AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null
+    if [ -d /etc/ssh/sshd_config.d ]; then
+        sed -i 's/^[[:space:]]*AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null
+    fi
+
+    # 5.7 写入 SSHD 级别的 SetEnv 变量强制锁定
+    mkdir -p /etc/ssh/sshd_config.d
+    cat << 'EOF' > /etc/ssh/sshd_config.d/99-zh-env.conf
+SetEnv LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:zh LC_ALL=zh_CN.UTF-8
+EOF
     systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null
 
 elif [[ "$ID" == "alpine" ]]; then
@@ -97,37 +105,27 @@ else
     echo "警告：未识别的系统类型 ($ID)，尝试应用通用设置..."
 fi
 
-# 6. 全局环境变量无条件覆盖持久化
+# 6. 写入全局 profile.d
 cat << 'EOF' > /etc/profile.d/zh_CN.sh
 export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
 
-if [ -f /etc/bash.bashrc ]; then
-    sed -i '/LC_ALL=zh_CN.UTF-8/d' /etc/bash.bashrc 2>/dev/null
-    cat << 'EOF' >> /etc/bash.bashrc
-export LANG=zh_CN.UTF-8
-export LANGUAGE=zh_CN:zh
-export LC_ALL=zh_CN.UTF-8
-EOF
-fi
+# 7. 绑定到所有可能的 Login Shell 入口 (解决 SSH 重连跳过 .bashrc 的问题)
+for f in ~/.profile ~/.bash_profile /etc/profile /etc/bash.bashrc ~/.bashrc; do
+    if [ -f "$f" ]; then
+        sed -i '/zh_CN.sh/d' "$f" 2>/dev/null
+        echo '[ -f /etc/profile.d/zh_CN.sh ] && . /etc/profile.d/zh_CN.sh' >> "$f"
+    fi
+done
 
-if [ -f ~/.bashrc ]; then
-    sed -i '/LC_ALL=zh_CN.UTF-8/d' ~/.bashrc 2>/dev/null
-    cat << 'EOF' >> ~/.bashrc
-export LANG=zh_CN.UTF-8
-export LANGUAGE=zh_CN:zh
-export LC_ALL=zh_CN.UTF-8
-EOF
-fi
-
-# 7. 立即强制刷新当前 Shell 环境变量
+# 8. 刷新当前 Shell 环境变量
 export LANG=zh_CN.UTF-8 > /dev/null 2>&1
 export LANGUAGE=zh_CN:zh > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
 
 echo "------------------------------------------------------------"
-echo -e "\033[1;32m✅ 部署完成666！预编译 nano 与中文环境完美成功\033[0m"
+echo -e "\033[1;32m✅ 部署完成！中文环境与 nano 界面已永久锁定\033[0m"
 echo -e "\033[1;33m📢 请重新连接 SSH 或运行 'source /etc/profile' 查看效果\033[0m"
 echo "------------------------------------------------------------"
