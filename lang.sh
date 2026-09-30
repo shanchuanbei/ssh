@@ -19,7 +19,7 @@ export LANG=C.UTF-8
 # 3. GitHub 托管资源直链
 GLIBC_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/zh_cn_pack.tar.gz"
 ALPINE_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/alpine_zh_pack.tar.gz"
-ALPINE_NANO_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/nano_alpine"
+ALPINE_NANO_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/nano"
 
 echo "正在极速切换系统语言为 zh_CN.UTF-8..."
 
