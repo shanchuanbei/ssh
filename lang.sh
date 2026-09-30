@@ -1,106 +1,73 @@
 #!/bin/bash
 
 # =========================================================
-# 全平台系统语言极速中文一键切换脚本 (zh_CN.UTF-8)
-# 支持系统：Debian / Ubuntu / Armbian / Alpine
-# 适配仓库：shanchuanbei/ssh
+# 系统语言一键极速切换脚本 (zh_CN.UTF-8)
+# 支持：Debian / Ubuntu / Armbian / Alpine
+# 特点：解压预制语言包，免 apt/localedef 编译，秒级生效
 # =========================================================
 
 # 1. 检查 root 权限
 [ "$EUID" -ne 0 ] && echo "错误：请以 root 权限运行" && exit 1
 
-# 临时重置变量，避免解压/安装过程抛出 setlocale 警告
-export LC_ALL=C.UTF-8
-export LANG=C.UTF-8
-
 # 2. 识别操作系统类型
 [ -f /etc/os-release ] && . /etc/os-release || ID="unknown"
 
-# 3. GitHub 托管资源直链
-GLIBC_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/zh_cn_pack.tar.gz"
-ALPINE_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/alpine_zh_pack.tar.gz"
-ALPINE_NANO_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/nano"
+# 3. 语言包预设直链
+PACKAGE_URL="https://github.com/shanchuanbei/ssh/raw/refs/heads/main/zh_cn_pack.tar.gz"
 
 echo "正在极速切换系统语言为 zh_CN.UTF-8..."
 
-# 4. 检查并匹配系统下载工具
-FETCH_CMD=""
-FETCH_OUT=""
-if command -v curl &> /dev/null; then
-    FETCH_CMD="curl -sL"
-    FETCH_OUT="curl -sL -o"
-elif command -v wget &> /dev/null; then
-    FETCH_CMD="wget -qO-"
-    FETCH_OUT="wget -qO"
-else
-    echo "错误：系统缺少 curl 和 wget，请先安装" && exit 1
-fi
-
-# 5. 分系统自动化部署
+# 4. 核心处理逻辑 (Debian / Ubuntu / Armbian)
 if [[ "$ID" == "debian" || "$ID" == "ubuntu" || "$ID" == "armbian" ]]; then
-    echo "检测到 Glibc 系统 ($ID)，正在部署语言包与 Locale 数据库..."
     
-    # 5.1 解压中文 .mo 翻译字典 (包含 nano, vim 等)
-    $FETCH_CMD "$GLIBC_URL" | tar -zx -C / > /dev/null 2>&1
+    # 检查网络下载工具
+    FETCH_CMD=""
+    if command -v curl &> /dev/null; then
+        FETCH_CMD="curl -sL"
+    elif command -v wget &> /dev/null; then
+        FETCH_CMD="wget -qO-"
+    else
+        echo "错误：系统缺少 curl 和 wget，请先安装网络工具" && exit 1
+    fi
+
+    echo "正在拉取并部署语言包 (几秒内完成)..."
+    
+    # 管道流式解压至根目录，并检测是否执行成功
+    if ! $FETCH_CMD "$PACKAGE_URL" | tar -zx -C / > /dev/null 2>&1; then
+        echo "错误：语言包下载或解压失败，请检查网络是否能连接 GitHub" && exit 1
+    fi
+
+    # 清除极简系统的 dpkg 排除限制 (以防影响后续软件)
     [ -f /etc/dpkg/dpkg.cfg.d/excludes ] && rm -f /etc/dpkg/dpkg.cfg.d/excludes > /dev/null 2>&1
 
-    # 5.2 自动检查并补全 locales 依赖
-    if ! command -v locale-gen &> /dev/null; then
-        echo "正在补全 locales 基础组件..."
-        apt-get update -qq && apt-get install -y -qq locales > /dev/null 2>&1
-    fi
-
-    # 5.3 激活并注册 zh_CN.UTF-8 到 Glibc 数据库
-    if [ -f /etc/locale.gen ]; then
-        sed -i 's/# zh_CN.UTF-8/zh_CN.UTF-8/' /etc/locale.gen 2>/dev/null
-        locale-gen zh_CN.UTF-8 > /dev/null 2>&1
-    else
-        localedef -i zh_CN -f UTF-8 zh_CN.UTF-8 > /dev/null 2>&1
-    fi
-
-    # 5.4 写入 Debian/Ubuntu 的默认 Locale 配置文件
+    # 写入系统默认 Locale 配置文件
     cat << 'EOF' > /etc/default/locale
 LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
 LC_ALL=zh_CN.UTF-8
 EOF
 
-elif [[ "$ID" == "alpine" ]]; then
-    echo "检测到 Alpine (musl)，正在部署 Alpine 中文语言包与 NLS nano..."
-    
-    # 5.1 安装 musl 基础编码库
-    apk add --no-cache musl-locales > /dev/null 2>&1
-    
-    # 5.2 注入中文 .mo 翻译字典
-    $FETCH_CMD "$ALPINE_URL" | tar -zx -C / > /dev/null 2>&1
-    
-    # 5.3 替换预编译的带中文 NLS 支持的 nano 二进制
-    $FETCH_OUT /usr/bin/nano "$ALPINE_NANO_URL" > /dev/null 2>&1
-    chmod +x /usr/bin/nano
-else
-    echo "警告：未识别的系统类型 ($ID)，尝试应用通用环境变量设置..."
-fi
-
-# 6. 写入全局环境变量（自动清洗并防御 SSH 客户端发送的 LANG=C / LANGUAGE=C）
-cat << 'EOF' > /etc/profile.d/zh_CN.sh
-# 强行清除可能被 SSH 客户端注入的 C / POSIX 语言变量
-[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
-[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
-
+    # 写入全局环境变量，确保 SSH 登录后自动加载
+    cat << 'EOF' > /etc/profile.d/zh_CN.sh
 export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
 
-# 7. 立即刷新当前终端 Shell 环境变量
-[ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ] && unset LANG
-[ "$LANGUAGE" = "C" ] || [ "$LANGUAGE" = "POSIX" ] && unset LANGUAGE
+elif [[ "$ID" == "alpine" ]]; then
+    # Alpine Linux 专门处理
+    apk add --no-cache musl-locales musl-locales-lang > /dev/null 2>&1
+    echo "export LANG=zh_CN.UTF-8" > /etc/profile.d/lang.sh
+else
+    echo "警告：未识别的系统类型 ($ID)，尝试强制应用环境变量..."
+fi
 
+# 5. 强制刷新当前 Shell 临时生效
 export LANG=zh_CN.UTF-8 > /dev/null 2>&1
 export LANGUAGE=zh_CN:zh > /dev/null 2>&1
 export LC_ALL=zh_CN.UTF-8 > /dev/null 2>&1
 
 echo "------------------------------------------------------------"
-echo -e "\033[1;32m✅ 配置完成！全平台均已完美支持中文界面与 nano 菜单\033[0m"
-echo -e "\033[1;33m📢 请重新连接 SSH 或运行 'source /etc/profile' 查看效果\033[0m"
+echo -e "\033[1;32m✅ yes配置完成！已成功注入中文环境与 nano/vim 字典\033[0m"
+echo -e "\033[1;33m📢 请重新连接 SSH 或运行 'source /etc/profile' 即可看效果\033[0m"
 echo "------------------------------------------------------------"
