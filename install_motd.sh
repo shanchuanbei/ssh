@@ -29,8 +29,6 @@ case "$OS" in
     alpine)
         true > /etc/motd 2>/dev/null
         true > /etc/issue 2>/dev/null
-        # 确保 Alpine 具备登录日志记录文件
-        [ -f /var/log/wtmp ] || touch /var/log/wtmp 2>/dev/null
         if ! command -v bash >/dev/null 2>&1; then apk add bash 2>/dev/null; fi
         ;;
     *)
@@ -137,13 +135,48 @@ if [ -n "$EXITED_APPS" ]; then
     done
 fi
 
-# 6. 最近登录记录 (彻底剔除 BusyBox 表头与系统关重启记录)
+# 6. 最近登录记录 (多级备选降级方案)
+LAST_LOGS=""
+
+# 方案 A: 尝试标准 last 命令 (Debian / Ubuntu / Armbian)
 if command -v last &> /dev/null; then
-    LAST_LOGS=$(last 2>/dev/null | grep -vE "reboot|wtmp|^$|^USER|LOGIN" | head -n 3)
-    if [ -n "$LAST_LOGS" ]; then
-        echo -e "\n${YELLOW}🛡️ 最近登录记录:${RESET}"
-        echo "$LAST_LOGS" | awk '{printf "  %-8s %-10s %-15s %s %s %s %s\n", $1, $2, $3, $4, $5, $6, $7}'
+    LAST_LOGS=$(last 2>/dev/null | grep -vE "reboot|wtmp|^$|^USER|LOGIN" | head -n 3 | awk '{printf "  %-8s %-10s %-15s %s %s %s %s\n", $1, $2, $3, $4, $5, $6, $7}')
+fi
+
+# 方案 B: 若 last 无记录，尝试解析 Alpine 系统 SSH 登录日志 (logread 或 /var/log/messages)
+if [ -z "$LAST_LOGS" ]; then
+    if command -v logread &> /dev/null && logread 2>/dev/null | grep -qE "Accepted (password|publickey)"; then
+        LAST_LOGS=$(logread 2>/dev/null | grep -E "Accepted (password|publickey)" | tail -n 3 | awk '{
+            user="unknown"; ip="unknown";
+            for(i=1;i<=NF;i++) {
+                if($i=="for") user=$(i+1);
+                if($i=="from") ip=$(i+1);
+            }
+            printf "  %-8s %-10s %-15s %s %s %s\n", user, "ssh", ip, $1, $2, $3
+        }')
+    elif [ -f /var/log/messages ]; then
+        LAST_LOGS=$(grep -E "Accepted (password|publickey)" /var/log/messages 2>/dev/null | tail -n 3 | awk '{
+            user="unknown"; ip="unknown";
+            for(i=1;i<=NF;i++) {
+                if($i=="for") user=$(i+1);
+                if($i=="from") ip=$(i+1);
+            }
+            printf "  %-8s %-10s %-15s %s %s %s\n", user, "ssh", ip, $1, $2, $3
+        }')
     fi
+fi
+
+# 方案 C: 若日志仍无记录，退而求其次显示当前活动会话 (who)
+if [ -z "$LAST_LOGS" ] && command -v who &> /dev/null; then
+    LAST_LOGS=$(who 2>/dev/null | head -n 3 | awk '{
+        ip=$5; gsub(/[()]/, "", ip); if(ip=="") ip="local";
+        printf "  %-8s %-10s %-15s %s %s\n", $1, $2, ip, $3, $4
+    }')
+fi
+
+if [ -n "$LAST_LOGS" ]; then
+    echo -e "\n${YELLOW}🛡️ 最近登录记录:${RESET}"
+    echo "$LAST_LOGS"
 fi
 
 # 7. 磁盘预警
@@ -155,4 +188,4 @@ EOF
 
 # 4. 设置权限
 chmod +x $TARGET_PATH
-echo "✅ 修复完成！重新登录 SSH 验证即可（注：Alpine 运行此命令后，下一次登录开始便会自动记录并正常展示）。"
+echo "✅ 安装成功！兼容 Debian / Ubuntu / Armbian / Alpine。请重新连接 SSH 终端验证效果。"
