@@ -9,18 +9,18 @@
 apt update && apt install sudo -y
 ```
 
-#### 实用的linux系统改中文脚本
+#### 改中文
 
 ```
 bash <(curl -sL zh.20240827.xyz)
 ```
 
-#### 实用的ssh登录信息显示脚本（Debian，Ubuntu，Armbian）
+#### ssh登录信息（Debian，Ubuntu，Armbian）
 
 ```
 bash <(curl -sL ssh.20240827.xyz)
 ```
-#### 实用的ssh登录信息显示脚本（Alpine）
+#### ssh登录信息（Alpine）
 
 ```
 bash <(curl -sL ssh2.20240827.xyz)
