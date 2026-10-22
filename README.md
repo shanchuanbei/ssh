@@ -20,8 +20,3 @@ bash <(curl -sL zh.20240827.xyz)
 ```
 bash <(curl -sL ssh.20240827.xyz)
 ```
-#### ssh登录信息（Alpine）
-
-```
-bash <(curl -sL ssh2.20240827.xyz)
-```
