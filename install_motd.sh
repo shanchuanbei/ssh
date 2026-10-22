@@ -387,29 +387,5 @@ if [ -f /etc/issue.net ]; then
     : > /etc/issue.net
 fi
 
-# ------------------------------------------------------------
-# 5. 检查并重新加载 SSH 配置
-# ------------------------------------------------------------
-
-if command -v sshd >/dev/null 2>&1; then
-    if sshd -t; then
-        if systemctl reload ssh 2>/dev/null; then
-            echo "SSH 服务配置已重新加载。"
-        elif systemctl reload sshd 2>/dev/null; then
-            echo "SSH 服务配置已重新加载。"
-        else
-            echo "警告：无法自动重新加载 SSH 服务，请检查服务状态。"
-        fi
-    else
-        echo "警告：SSH 配置检查失败。请保持当前连接，检查配置后再重载服务。"
-        exit 1
-    fi
-else
-    echo "警告：未找到 sshd 命令，已写入配置但未能验证 SSH 设置。"
-fi
-
-# ------------------------------------------------------------
-# 6. 安装完成
-# ------------------------------------------------------------
 
 echo "MOTD 安装完成！！！"
