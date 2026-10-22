@@ -6,22 +6,59 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "==> 1. 正在更新软件源并安装 locales 语言包工具..."
-apt update && apt install -y locales
+# 检测当前系统的 ID (ubuntu 或 debian)
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=$ID
+else
+    echo "错误：无法检测系统类型，未找到 /etc/os-release 文件。"
+    exit 1
+fi
 
-echo "==> 2. 正在启用 zh_CN.UTF-8 编码..."
-sed -i 's/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen
+echo "==> 检测到当前系统为: $OS_ID"
 
-echo "==> 3. 正在生成系统语言包..."
-locale-gen
+# 根据系统类型执行对应的逻辑
+if [ "$OS_ID" = "ubuntu" ]; then
+    echo "==> 正在执行 Ubuntu 系统中文配置..."
+    
+    echo "==> 1. 正在安装 Ubuntu 专属中文语言包与 locales 工具..."
+    apt update && apt install -y language-pack-zh-hans locales
 
-echo "==> 4. 正在更新系统默认区域设置..."
-update-locale LANG=zh_CN.UTF-8
+    echo "==> 2. 正在启用 zh_CN.UTF-8 编码..."
+    sed -i 's/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen
+    locale-gen zh_CN.UTF-8
 
-echo "==> 5. 正在临时刷新当前终端的环境变量..."
-export LANG=zh_CN.UTF-8
+    echo "==> 3. 正在更新 Ubuntu 全局语言配置..."
+    update-locale LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8
+
+    echo "==> 4. 正在修复 SSH 客户端环境变量覆盖问题..."
+    sed -i 's/^AcceptEnv/#AcceptEnv/' /etc/ssh/sshd_config
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
+
+elif [ "$OS_ID" = "debian" ]; then
+    echo "==> 正在执行 Debian 系统中文配置..."
+
+    echo "==> 1. 正在更新软件源并安装 locales 语言包工具..."
+    apt update && apt install -y locales
+
+    echo "==> 2. 正在启用 zh_CN.UTF-8 编码..."
+    sed -i 's/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen
+
+    echo "==> 3. 正在生成系统语言包..."
+    locale-gen
+
+    echo "==> 4. 正在更新系统默认区域设置..."
+    update-locale LANG=zh_CN.UTF-8
+
+    echo "==> 5. 正在临时刷新当前终端的环境变量..."
+    export LANG=zh_CN.UTF-8
+
+else
+    echo "错误：本脚本暂不支持当前系统 ($OS_ID)，仅支持 Ubuntu 和 Debian。"
+    exit 1
+fi
 
 echo "=========================================="
 echo "✨ 中文环境配置完成！"
-echo "请执行 'locale' 命令查看生效状态。"
+echo "请断开当前的终端连接并重新登录，然后输入 'locale' 检查。"
 echo "=========================================="
