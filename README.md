@@ -15,8 +15,13 @@ apt update && apt install sudo -y
 bash <(curl -sL zh.20240827.xyz)
 ```
 
-#### 实用的ssh登录信息显示脚本
+#### 实用的ssh登录信息显示脚本（Debian，Ubuntu，Armbian）
 
 ```
 bash <(curl -sL ssh.20240827.xyz)
+```
+#### 实用的ssh登录信息显示脚本（Alpine）
+
+```
+bash <(curl -sL ssh2.20240827.xyz)
 ```
