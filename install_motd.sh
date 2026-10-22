@@ -1,6 +1,7 @@
 
 #!/bin/bash
-set -e
+set -Eeuo pipefail
+
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "请使用 root 权限运行：sudo bash install-motd.sh"
@@ -9,22 +10,31 @@ fi
 
 DISPLAY_SCRIPT="/usr/local/bin/custom-motd-display.sh"
 PROFILE_SCRIPT="/etc/profile.d/custom-motd.sh"
+SSH_CONFIG="/etc/ssh/sshd_config"
+PAM_SSH="/etc/pam.d/sshd"
+
+echo "正在安装通用 MOTD..."
 
 # ------------------------------------------------------------
-# 1. 备份旧文件
+# 1. 备份现有配置
 # ------------------------------------------------------------
 
-if [ -f "$DISPLAY_SCRIPT" ]; then
-    cp -a "$DISPLAY_SCRIPT" "${DISPLAY_SCRIPT}.bak"
-fi
+backup_file() {
+    local file="$1"
+    if [ -f "$file" ] && [ ! -e "${file}.custom-motd.bak" ]; then
+        cp -a "$file" "${file}.custom-motd.bak"
+    fi
+}
 
-if [ -f "$PROFILE_SCRIPT" ]; then
-    cp -a "$PROFILE_SCRIPT" "${PROFILE_SCRIPT}.bak"
-fi
-
+backup_file "$DISPLAY_SCRIPT"
+backup_file "$PROFILE_SCRIPT"
+backup_file "$SSH_CONFIG"
+backup_file "$PAM_SSH"
+backup_file /etc/issue
+backup_file /etc/issue.net
 
 # ------------------------------------------------------------
-# 2. 生成 MOTD 显示脚本
+# 2. 自定义 MOTD 显示脚本
 # ------------------------------------------------------------
 
 cat > "$DISPLAY_SCRIPT" <<'DISPLAY_EOF'
@@ -35,10 +45,6 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# ------------------------------------------------------------
-# 系统版本
-# ------------------------------------------------------------
-
 get_os_name() {
     if [ -r /etc/os-release ]; then
         . /etc/os-release
@@ -48,26 +54,14 @@ get_os_name() {
     fi
 }
 
-# ------------------------------------------------------------
-# 系统运行时间
-# ------------------------------------------------------------
-
 get_uptime() {
-    local total_seconds days hours minutes
-
-    total_seconds=$(awk '{print int($1)}' /proc/uptime)
-
-    days=$((total_seconds / 86400))
-    hours=$(((total_seconds % 86400) / 3600))
-    minutes=$(((total_seconds % 3600) / 60))
-
+    local seconds
+    seconds=$(awk '{print int($1)}' /proc/uptime)
     printf '%s天 / %s小时 / %s分钟' \
-        "$days" "$hours" "$minutes"
+        "$((seconds / 86400))" \
+        "$(((seconds % 86400) / 3600))" \
+        "$(((seconds % 3600) / 60))"
 }
-
-# ------------------------------------------------------------
-# 内存使用
-# ------------------------------------------------------------
 
 get_memory() {
     if command -v free >/dev/null 2>&1; then
@@ -77,37 +71,21 @@ get_memory() {
     fi
 }
 
-# ------------------------------------------------------------
-# 根分区磁盘使用
-# ------------------------------------------------------------
-
 get_disk() {
     df -h / 2>/dev/null |
         awk 'NR==2 {printf "%s / %s (%s)", $3, $2, $5}'
 }
 
-# ------------------------------------------------------------
-# APT 更新时间
-#
-# 注意：
-# - update-success-stamp 优先，代表 APT 更新成功时间戳。
-# - 软件源索引时间作为通用回退。
-# - systemd 日志作为最后回退之一。
-# - history.log 主要记录软件包事务，并非 apt update 时间，
-#   因此不把它当成精确的索引更新时间。
-# ------------------------------------------------------------
-
+# APT 更新时间：优先成功时间戳，其次索引更新时间，再查日志
 get_update_time() {
     local stamp latest result
 
-    # 来源一：APT periodic 成功更新时间戳
     for stamp in \
         /var/lib/apt/periodic/update-success-stamp \
         /var/lib/apt/periodic/update-stamp
     do
         if [ -f "$stamp" ]; then
             result=$(date -r "$stamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
-
             if [ -n "$result" ]; then
                 printf '%s' "$result"
                 return
@@ -115,22 +93,17 @@ get_update_time() {
         fi
     done
 
-    # 来源二：APT 软件源索引文件的最近修改时间
-    # 同时适用于 Debian、Ubuntu、Armbian 的常见 APT 布局
     if [ -d /var/lib/apt/lists ]; then
         latest=$(
             find /var/lib/apt/lists -maxdepth 1 -type f \
-                ! -name 'lock' \
-                ! -path '*/partial/*' \
+                ! -name lock ! -path '*/partial/*' \
                 -printf '%T@\n' 2>/dev/null |
-            sort -nr |
-            head -n 1
+            sort -nr | head -n 1
         )
 
         if [ -n "$latest" ]; then
             result=$(date -d "@${latest%.*}" \
                 '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
-
             if [ -n "$result" ]; then
                 printf '%s' "$result"
                 return
@@ -138,23 +111,18 @@ get_update_time() {
         fi
     fi
 
-    # 来源三：systemd APT 自动更新服务日志
     if command -v journalctl >/dev/null 2>&1; then
         result=$(
-            journalctl \
-                -u apt-daily.service \
+            journalctl -u apt-daily.service \
                 -u apt-daily-upgrade.service \
                 --no-pager -o short-iso -n 300 2>/dev/null |
-            grep -E \
-                'Starting .*Daily apt|Started .*Daily apt|Finished .*Daily apt|APT.*update|Reading package lists' |
-            tail -n 1 |
-            awk '{print $1}'
+            grep -E 'Starting .*Daily apt|Started .*Daily apt|Finished .*Daily apt|Reading package lists' |
+            tail -n 1 | awk '{print $1}'
         )
 
         if [ -n "$result" ]; then
             result=$(date -d "$result" \
                 '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
-
             if [ -n "$result" ]; then
                 printf '%s' "$result"
                 return
@@ -162,13 +130,8 @@ get_update_time() {
         fi
     fi
 
-    # 所有来源都没有记录
     printf '暂无记录'
 }
-
-# ------------------------------------------------------------
-# 当前时间和中文星期
-# ------------------------------------------------------------
 
 get_current_time() {
     date '+%Y-%m-%d %H:%M:%S (%A)' |
@@ -182,24 +145,15 @@ get_current_time() {
             -e 's/Sunday/星期日/'
 }
 
-# ------------------------------------------------------------
-# 读取 SSH 认证日志
-# 先使用 systemd journal，失败时回退到传统日志文件
-# ------------------------------------------------------------
-
+# SSH 认证日志：优先 journal，随后尝试传统日志文件
 get_ssh_logs() {
     local logs logfile
 
     if command -v journalctl >/dev/null 2>&1; then
         logs=$(
-            journalctl \
-                -u ssh.service \
-                -u sshd.service \
-                --since today \
-                --no-pager \
-                -o short-iso 2>/dev/null || true
+            journalctl -u ssh.service -u sshd.service \
+                --since today --no-pager -o short-iso 2>/dev/null || true
         )
-
         if [ -n "$logs" ]; then
             printf '%s\n' "$logs"
             return
@@ -216,13 +170,8 @@ get_ssh_logs() {
     return 1
 }
 
-# ------------------------------------------------------------
-# SSH 认证失败次数
-# ------------------------------------------------------------
-
 get_failed_count() {
     local logs count
-
     logs=$(get_ssh_logs 2>/dev/null || true)
 
     if [ -z "$logs" ]; then
@@ -239,10 +188,6 @@ get_failed_count() {
 
     printf '%s' "${count:-0}"
 }
-
-# ------------------------------------------------------------
-# 最近三条 SSH 登录成功记录
-# ------------------------------------------------------------
 
 get_recent_logins() {
     local logs result
@@ -297,11 +242,6 @@ get_recent_logins() {
     fi
 }
 
-# ------------------------------------------------------------
-# Docker 状态
-# 自动检测所有运行中的容器，不指定固定应用名称
-# ------------------------------------------------------------
-
 show_docker() {
     local containers images name
 
@@ -315,15 +255,9 @@ show_docker() {
         return
     fi
 
-    containers=$(
-        docker ps -q 2>/dev/null |
-        wc -l | tr -d ' '
-    )
-
-    images=$(
-        docker images --format '{{.ID}}' 2>/dev/null |
-        sort -u | wc -l | tr -d ' '
-    )
+    containers=$(docker ps -q 2>/dev/null | wc -l | tr -d ' ')
+    images=$(docker images --format '{{.ID}}' 2>/dev/null |
+        sort -u | wc -l | tr -d ' ')
 
     echo -e "🐳 Docker 状态：${GREEN}✅ Docker 运行中：容器 ${containers} 个，镜像 ${images} 个${NC}"
 
@@ -337,14 +271,9 @@ show_docker() {
     fi
 }
 
-# ============================================================
-# 输出欢迎信息
-# ============================================================
-
 echo "------------------------------------------------------------"
 echo -e "👋 欢迎回来, ${GREEN}$(whoami)@$(hostname)${NC}!"
 echo "------------------------------------------------------------"
-
 echo -e "⏰ 当前时间:    $(get_current_time)"
 echo -e "🆙 运行时间:    $(get_uptime)"
 echo -e "💾 内存使用:    $(get_memory)"
@@ -358,7 +287,6 @@ show_docker
 echo "------------------------------------------------------------"
 
 failed_count=$(get_failed_count)
-
 if [ "$failed_count" = "无法读取" ]; then
     echo -e "⚠️ SSH 认证失败次数：${YELLOW}无法读取认证日志${NC}"
 else
@@ -367,17 +295,11 @@ fi
 
 echo "✔️ 最近登录成功记录（显示最近三条）："
 get_recent_logins
-
 echo "------------------------------------------------------------"
 DISPLAY_EOF
 
 chmod 755 "$DISPLAY_SCRIPT"
-
-# 先检查显示脚本语法
-if ! bash -n "$DISPLAY_SCRIPT"; then
-    echo "错误：MOTD 显示脚本语法检查失败。"
-    exit 1
-fi
+bash -n "$DISPLAY_SCRIPT"
 
 # ------------------------------------------------------------
 # 3. 创建登录入口
@@ -390,12 +312,12 @@ case "$-" in
     *) return 0 2>/dev/null || exit 0 ;;
 esac
 
-# 避免同一个 Shell 重复显示
+# 同一 Shell 避免重复显示
 if [ -n "${CUSTOM_MOTD_SHOWN:-}" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# sudo -i 进入 root 时尝试跳过重复显示
+# sudo -i 切换到 root 时跳过重复显示
 if [ "$(id -u)" -eq 0 ] &&
    [ -n "${SUDO_USER:-}" ] &&
    [ "$SUDO_USER" != "root" ]; then
@@ -413,15 +335,85 @@ fi
 PROFILE_EOF
 
 chmod 644 "$PROFILE_SCRIPT"
+bash -n "$PROFILE_SCRIPT"
 
-if ! bash -n "$PROFILE_SCRIPT"; then
-    echo "错误：MOTD 登录入口语法检查失败。"
-    exit 1
+# ------------------------------------------------------------
+# 4. 屏蔽 SSH 原始登录信息
+# ------------------------------------------------------------
+
+echo "正在屏蔽系统原始登录信息..."
+
+# 设置 SSH 选项。
+# 使用 00 开头的配置文件，兼容 Debian / Ubuntu 常见的
+# sshd_config.d Include 配置；同时修改主配置作为回退。
+mkdir -p /etc/ssh/sshd_config.d
+
+cat > /etc/ssh/sshd_config.d/00-custom-motd.conf <<'SSH_EOF'
+PrintMotd no
+PrintLastLog no
+Banner none
+SSH_EOF
+
+# 同步修改主配置中已有的同名指令，避免配置冲突。
+if [ -f "$SSH_CONFIG" ]; then
+    sed -i -E \
+        '/^[[:space:]]*#?[[:space:]]*(PrintMotd|PrintLastLog|Banner)[[:space:]]+/Id' \
+        "$SSH_CONFIG"
+
+    cat >> "$SSH_CONFIG" <<'SSH_MAIN_EOF'
+
+# Custom MOTD: disable default SSH login banners
+PrintMotd no
+PrintLastLog no
+Banner none
+SSH_MAIN_EOF
+fi
+
+# 禁用 PAM 在 SSH 登录时输出系统 MOTD 和 issue。
+# 不删除原始配置，只注释相关 session 行。
+if [ -f "$PAM_SSH" ]; then
+    sed -i -E \
+        '/^[[:space:]]*session[[:space:]].*pam_motd\.so/s/^/# disabled-by-custom-motd /' \
+        "$PAM_SSH"
+
+    sed -i -E \
+        '/^[[:space:]]*session[[:space:]].*pam_issue\.so/s/^/# disabled-by-custom-motd /' \
+        "$PAM_SSH"
+fi
+
+# 清空 SSH 可能读取的默认 issue 文件。
+# 先前已经备份；这里只清空，不删除文件。
+if [ -f /etc/issue ]; then
+    : > /etc/issue
+fi
+
+if [ -f /etc/issue.net ]; then
+    : > /etc/issue.net
 fi
 
 # ------------------------------------------------------------
-# 4. 安装完成
+# 5. 检查并重新加载 SSH 配置
 # ------------------------------------------------------------
 
-echo "MOTD 安装完成！"
+if command -v sshd >/dev/null 2>&1; then
+    if sshd -t; then
+        if systemctl reload ssh 2>/dev/null; then
+            echo "SSH 服务配置已重新加载。"
+        elif systemctl reload sshd 2>/dev/null; then
+            echo "SSH 服务配置已重新加载。"
+        else
+            echo "警告：无法自动重新加载 SSH 服务，请检查服务状态。"
+        fi
+    else
+        echo "警告：SSH 配置检查失败。请保持当前连接，检查配置后再重载服务。"
+        exit 1
+    fi
+else
+    echo "警告：未找到 sshd 命令，已写入配置但未能验证 SSH 设置。"
+fi
 
+# ------------------------------------------------------------
+# 6. 安装完成
+# ------------------------------------------------------------
+
+echo "MOTD 安装完成！！！"
