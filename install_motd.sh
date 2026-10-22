@@ -1,191 +1,427 @@
+
+#!/bin/bash
+set -e
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "请使用 root 权限运行：sudo bash install-motd.sh"
+    exit 1
+fi
+
+DISPLAY_SCRIPT="/usr/local/bin/custom-motd-display.sh"
+PROFILE_SCRIPT="/etc/profile.d/custom-motd.sh"
+
+# ------------------------------------------------------------
+# 1. 备份旧文件
+# ------------------------------------------------------------
+
+if [ -f "$DISPLAY_SCRIPT" ]; then
+    cp -a "$DISPLAY_SCRIPT" "${DISPLAY_SCRIPT}.bak"
+fi
+
+if [ -f "$PROFILE_SCRIPT" ]; then
+    cp -a "$PROFILE_SCRIPT" "${PROFILE_SCRIPT}.bak"
+fi
+
+
+# ------------------------------------------------------------
+# 2. 生成 MOTD 显示脚本
+# ------------------------------------------------------------
+
+cat > "$DISPLAY_SCRIPT" <<'DISPLAY_EOF'
 #!/bin/bash
 
-# 1. 权限检查
-if [ "$EUID" -ne 0 ]; then 
-  echo "错误：请以 root 权限运行此脚本"
-  exit 1
-fi
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# 2. 自动识别系统并清理默认 MOTD 信息
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
-else
-    OS="unknown"
-fi
+# ------------------------------------------------------------
+# 系统版本
+# ------------------------------------------------------------
 
-case "$OS" in
-    ubuntu|debian)
-        true > /etc/motd 2>/dev/null
-        true > /etc/issue 2>/dev/null
-        true > /etc/issue.net 2>/dev/null
-        [ -d /etc/update-motd.d ] && chmod -x /etc/update-motd.d/* 2>/dev/null || true
-        ;;
-    armbian)
-        true > /etc/motd 2>/dev/null
-        [ -d /etc/update-motd.d ] && chmod -x /etc/update-motd.d/* 2>/dev/null || true
-        [ -f /etc/default/armbian-motd ] && sed -i 's/ENABLED=true/ENABLED=false/' /etc/default/armbian-motd 2>/dev/null
-        ;;
-    alpine)
-        true > /etc/motd 2>/dev/null
-        true > /etc/issue 2>/dev/null
-        if ! command -v bash >/dev/null 2>&1; then apk add bash 2>/dev/null; fi
-        ;;
-    *)
-        true > /etc/motd 2>/dev/null
-        ;;
-esac
-
-# 3. 写入 custom-motd.sh 脚本
-TARGET_PATH="/etc/profile.d/custom-motd.sh"
-
-cat << 'EOF' > $TARGET_PATH
-#!/bin/bash
-
-# 1. 核心逻辑：防止 sudo 切换或非交互式 Shell 时重复显示
-[ -n "$SUDO_USER" ] && return
-[[ $- != *i* ]] && return 2>/dev/null
-
-# 颜色定义
-GREEN='\033[1;32m'; BLUE='\033[1;34m'; CYAN='\033[1;36m'
-YELLOW='\033[1;33m'; RED='\033[1;31m'; RESET='\033[0m'
-
-# 2. 基础信息采集
-USER_NAME=$(whoami)
-HOSTNAME=$(hostname 2>/dev/null || uname -n)
-
-# 系统版本 (防止多行 PRETTY_NAME 重复)
-OS_VER=$(grep -m 1 "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d '=' -f 2 | tr -d '"')
-[ -z "$OS_VER" ] && OS_VER="Unknown OS"
-
-# 时间与星期
-CURRENT_DATE=$(date '+%Y-%m-%d %H:%M:%S')
-WEEKDAY_NUM=$(date '+%u')
-case "$WEEKDAY_NUM" in
-    1) WEEKDAY="星期一" ;; 2) WEEKDAY="星期二" ;; 3) WEEKDAY="星期三" ;;
-    4) WEEKDAY="星期四" ;; 5) WEEKDAY="星期五" ;; 6) WEEKDAY="星期六" ;;
-    7) WEEKDAY="星期日" ;; *) WEEKDAY="未知" ;;
-esac
-
-# 统一读取 /proc/uptime 计算运行时间
-if [ -f /proc/uptime ]; then
-    UPTIME=$(awk '{
-        up=int($1);
-        d=int(up/86400);
-        h=int((up%86400)/3600);
-        m=int((up%3600)/60);
-        if(d>0) printf "%d天 ", d;
-        if(h>0 || d>0) printf "%d小时 ", h;
-        printf "%d分钟", m;
-    }' /proc/uptime)
-else
-    UPTIME=$(uptime 2>/dev/null | awk -F'up ' '{print $2}' | awk -F',' '{print $1}')
-fi
-
-# 内存与磁盘使用率
-MEM_INFO=$(free -h 2>/dev/null | grep -Ei "mem|内存" | awk '{print $3 " / " $2}')
-DISK_INFO=$(df -h / 2>/dev/null | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
-DISK_PERCENT=$(df / 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
-
-# 系统最后更新日志记录
-if [ -f /var/log/apt/history.log ]; then
-    LAST_UPDATE=$(stat -c %y /var/log/apt/history.log 2>/dev/null | cut -d '.' -f1)
-elif [ -f /var/log/dpkg.log ]; then
-    LAST_UPDATE=$(stat -c %y /var/log/dpkg.log 2>/dev/null | cut -d '.' -f1)
-elif [ -f /var/log/apk.log ]; then
-    LAST_UPDATE=$(stat -c %y /var/log/apk.log 2>/dev/null | cut -d '.' -f1)
-else
-    LAST_UPDATE="未知"
-fi
-[ -z "$LAST_UPDATE" ] && LAST_UPDATE="未知"
-
-# 3. Docker 状态与容器分类
-if command -v docker &> /dev/null; then
-    RUNNING_APPS=$(docker ps --format "{{.Names}}" 2>/dev/null | sort)
-    EXITED_APPS=$(docker ps -a --filter "status=exited" --filter "status=created" --format "{{.Names}}" 2>/dev/null | sort)
-    D_TOTAL_COUNT=$(docker ps -a -q 2>/dev/null | wc -l | tr -d ' ')
-    D_IMAGES=$(docker images -q 2>/dev/null | wc -l | tr -d ' ')
-    D_STATUS="✅ Docker 运行中：容器 $D_TOTAL_COUNT 个，镜像 $D_IMAGES 个"
-else
-    D_STATUS="❌ 未安装 Docker"
-fi
-
-# 4. 输出界面
-echo -e "${GREEN}👋 欢迎回来, ${USER_NAME}@${HOSTNAME}!${RESET}"
-echo -e "${BLUE}------------------------------------------------------------${RESET}"
-echo -e "⏰ ${BLUE}当前时间:${RESET}    ${CYAN}${CURRENT_DATE} (${WEEKDAY})${RESET}"
-echo -e "🆙 ${BLUE}运行时间:${RESET}    ${CYAN}${UPTIME}${RESET}"
-echo -e "💾 ${BLUE}内存使用:${RESET}    ${CYAN}${MEM_INFO}${RESET}"
-echo -e "🗂️ ${BLUE}磁盘使用:${RESET}    ${CYAN}${DISK_INFO}${RESET}"
-echo -e "📦 系统更新:${RESET}    ${CYAN}${LAST_UPDATE}${RESET}"
-echo -e "🖥️ 系统版本:${RESET}    ${CYAN}${OS_VER}${RESET}"
-echo -e "${BLUE}------------------------------------------------------------${RESET}"
-
-# 5. Docker 容器列表
-echo -e "\n${YELLOW}🐳 Docker 状态:${RESET}   ${D_STATUS}"
-
-if [ -n "$RUNNING_APPS" ]; then
-    for app in $RUNNING_APPS; do
-        echo -e "${GREEN}✅ $app 运行中${RESET}"
-    done
-fi
-if [ -n "$EXITED_APPS" ]; then
-    for app in $EXITED_APPS; do
-        echo -e "${RED}❌ $app 未运行${RESET}"
-    done
-fi
-
-# 6. 最近登录记录 (多级备选降级方案)
-LAST_LOGS=""
-
-# 方案 A: 尝试标准 last 命令 (Debian / Ubuntu / Armbian)
-if command -v last &> /dev/null; then
-    LAST_LOGS=$(last 2>/dev/null | grep -vE "reboot|wtmp|^$|^USER|LOGIN" | head -n 3 | awk '{printf "  %-8s %-10s %-15s %s %s %s %s\n", $1, $2, $3, $4, $5, $6, $7}')
-fi
-
-# 方案 B: 若 last 无记录，尝试解析 Alpine 系统 SSH 登录日志 (logread 或 /var/log/messages)
-if [ -z "$LAST_LOGS" ]; then
-    if command -v logread &> /dev/null && logread 2>/dev/null | grep -qE "Accepted (password|publickey)"; then
-        LAST_LOGS=$(logread 2>/dev/null | grep -E "Accepted (password|publickey)" | tail -n 3 | awk '{
-            user="unknown"; ip="unknown";
-            for(i=1;i<=NF;i++) {
-                if($i=="for") user=$(i+1);
-                if($i=="from") ip=$(i+1);
-            }
-            printf "  %-8s %-10s %-15s %s %s %s\n", user, "ssh", ip, $1, $2, $3
-        }')
-    elif [ -f /var/log/messages ]; then
-        LAST_LOGS=$(grep -E "Accepted (password|publickey)" /var/log/messages 2>/dev/null | tail -n 3 | awk '{
-            user="unknown"; ip="unknown";
-            for(i=1;i<=NF;i++) {
-                if($i=="for") user=$(i+1);
-                if($i=="from") ip=$(i+1);
-            }
-            printf "  %-8s %-10s %-15s %s %s %s\n", user, "ssh", ip, $1, $2, $3
-        }')
+get_os_name() {
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        printf '%s' "${PRETTY_NAME:-${NAME:-Linux}}"
+    else
+        printf 'Linux'
     fi
+}
+
+# ------------------------------------------------------------
+# 系统运行时间
+# ------------------------------------------------------------
+
+get_uptime() {
+    local total_seconds days hours minutes
+
+    total_seconds=$(awk '{print int($1)}' /proc/uptime)
+
+    days=$((total_seconds / 86400))
+    hours=$(((total_seconds % 86400) / 3600))
+    minutes=$(((total_seconds % 3600) / 60))
+
+    printf '%s天 / %s小时 / %s分钟' \
+        "$days" "$hours" "$minutes"
+}
+
+# ------------------------------------------------------------
+# 内存使用
+# ------------------------------------------------------------
+
+get_memory() {
+    if command -v free >/dev/null 2>&1; then
+        free -h | awk 'NR==2 {printf "%s / %s", $3, $2}'
+    else
+        printf '无法获取'
+    fi
+}
+
+# ------------------------------------------------------------
+# 根分区磁盘使用
+# ------------------------------------------------------------
+
+get_disk() {
+    df -h / 2>/dev/null |
+        awk 'NR==2 {printf "%s / %s (%s)", $3, $2, $5}'
+}
+
+# ------------------------------------------------------------
+# APT 更新时间
+#
+# 注意：
+# - update-success-stamp 优先，代表 APT 更新成功时间戳。
+# - 软件源索引时间作为通用回退。
+# - systemd 日志作为最后回退之一。
+# - history.log 主要记录软件包事务，并非 apt update 时间，
+#   因此不把它当成精确的索引更新时间。
+# ------------------------------------------------------------
+
+get_update_time() {
+    local stamp latest result
+
+    # 来源一：APT periodic 成功更新时间戳
+    for stamp in \
+        /var/lib/apt/periodic/update-success-stamp \
+        /var/lib/apt/periodic/update-stamp
+    do
+        if [ -f "$stamp" ]; then
+            result=$(date -r "$stamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
+
+            if [ -n "$result" ]; then
+                printf '%s' "$result"
+                return
+            fi
+        fi
+    done
+
+    # 来源二：APT 软件源索引文件的最近修改时间
+    # 同时适用于 Debian、Ubuntu、Armbian 的常见 APT 布局
+    if [ -d /var/lib/apt/lists ]; then
+        latest=$(
+            find /var/lib/apt/lists -maxdepth 1 -type f \
+                ! -name 'lock' \
+                ! -path '*/partial/*' \
+                -printf '%T@\n' 2>/dev/null |
+            sort -nr |
+            head -n 1
+        )
+
+        if [ -n "$latest" ]; then
+            result=$(date -d "@${latest%.*}" \
+                '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
+
+            if [ -n "$result" ]; then
+                printf '%s' "$result"
+                return
+            fi
+        fi
+    fi
+
+    # 来源三：systemd APT 自动更新服务日志
+    if command -v journalctl >/dev/null 2>&1; then
+        result=$(
+            journalctl \
+                -u apt-daily.service \
+                -u apt-daily-upgrade.service \
+                --no-pager -o short-iso -n 300 2>/dev/null |
+            grep -E \
+                'Starting .*Daily apt|Started .*Daily apt|Finished .*Daily apt|APT.*update|Reading package lists' |
+            tail -n 1 |
+            awk '{print $1}'
+        )
+
+        if [ -n "$result" ]; then
+            result=$(date -d "$result" \
+                '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
+
+            if [ -n "$result" ]; then
+                printf '%s' "$result"
+                return
+            fi
+        fi
+    fi
+
+    # 所有来源都没有记录
+    printf '暂无记录'
+}
+
+# ------------------------------------------------------------
+# 当前时间和中文星期
+# ------------------------------------------------------------
+
+get_current_time() {
+    date '+%Y-%m-%d %H:%M:%S (%A)' |
+        sed \
+            -e 's/Monday/星期一/' \
+            -e 's/Tuesday/星期二/' \
+            -e 's/Wednesday/星期三/' \
+            -e 's/Thursday/星期四/' \
+            -e 's/Friday/星期五/' \
+            -e 's/Saturday/星期六/' \
+            -e 's/Sunday/星期日/'
+}
+
+# ------------------------------------------------------------
+# 读取 SSH 认证日志
+# 先使用 systemd journal，失败时回退到传统日志文件
+# ------------------------------------------------------------
+
+get_ssh_logs() {
+    local logs logfile
+
+    if command -v journalctl >/dev/null 2>&1; then
+        logs=$(
+            journalctl \
+                -u ssh.service \
+                -u sshd.service \
+                --since today \
+                --no-pager \
+                -o short-iso 2>/dev/null || true
+        )
+
+        if [ -n "$logs" ]; then
+            printf '%s\n' "$logs"
+            return
+        fi
+    fi
+
+    for logfile in /var/log/auth.log /var/log/secure; do
+        if [ -r "$logfile" ]; then
+            grep -F "$(date '+%b %e')" "$logfile" 2>/dev/null || true
+            return
+        fi
+    done
+
+    return 1
+}
+
+# ------------------------------------------------------------
+# SSH 认证失败次数
+# ------------------------------------------------------------
+
+get_failed_count() {
+    local logs count
+
+    logs=$(get_ssh_logs 2>/dev/null || true)
+
+    if [ -z "$logs" ]; then
+        printf '无法读取'
+        return
+    fi
+
+    count=$(
+        printf '%s\n' "$logs" |
+        grep -Eic \
+            'Failed password|Invalid user|authentication failure|Failed publickey' ||
+        true
+    )
+
+    printf '%s' "${count:-0}"
+}
+
+# ------------------------------------------------------------
+# 最近三条 SSH 登录成功记录
+# ------------------------------------------------------------
+
+get_recent_logins() {
+    local logs result
+
+    logs=$(get_ssh_logs 2>/dev/null || true)
+
+    if [ -z "$logs" ]; then
+        echo "   无法读取系统认证日志"
+        return
+    fi
+
+    result=$(
+        printf '%s\n' "$logs" |
+        awk '
+        /Accepted password for/ || /Accepted publickey for/ {
+            timestamp=""
+            user=""
+            ip=""
+
+            if ($1 ~ /^[0-9][0-9][0-9][0-9]-/) {
+                timestamp=$1
+            } else {
+                timestamp=$1 " " $2 " " $3
+            }
+
+            for (i=1; i<=NF; i++) {
+                if ($i=="for" && i<NF) user=$(i+1)
+                if ($i=="from" && i<NF) ip=$(i+1)
+            }
+
+            if (user!="" && ip!="") {
+                print timestamp "\t" user "\t" ip
+            }
+        }' |
+        tail -n 3 |
+        while IFS="$(printf '\t')" read -r timestamp user ip; do
+            [ -n "$user" ] || continue
+
+            formatted=$(
+                date -d "$timestamp" '+%-m月%-d日 %H:%M' 2>/dev/null ||
+                printf '%s' "$timestamp"
+            )
+
+            printf '   %-8s %-20s %s\n' "$user" "$ip" "$formatted"
+        done
+    )
+
+    if [ -n "$result" ]; then
+        printf '%s\n' "$result"
+    else
+        echo "   暂无可读取的登录成功历史"
+    fi
+}
+
+# ------------------------------------------------------------
+# Docker 状态
+# 自动检测所有运行中的容器，不指定固定应用名称
+# ------------------------------------------------------------
+
+show_docker() {
+    local containers images name
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo -e "🐳 Docker 状态：${YELLOW}⚠️ Docker 未安装${NC}"
+        return
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        echo -e "🐳 Docker 状态：${RED}❌ Docker 未运行或无法访问${NC}"
+        return
+    fi
+
+    containers=$(
+        docker ps -q 2>/dev/null |
+        wc -l | tr -d ' '
+    )
+
+    images=$(
+        docker images --format '{{.ID}}' 2>/dev/null |
+        sort -u | wc -l | tr -d ' '
+    )
+
+    echo -e "🐳 Docker 状态：${GREEN}✅ Docker 运行中：容器 ${containers} 个，镜像 ${images} 个${NC}"
+
+    if [ "${containers:-0}" -gt 0 ] 2>/dev/null; then
+        while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            echo -e "   ${GREEN}✅ ${name} 运行中${NC}"
+        done < <(docker ps --format '{{.Names}}' 2>/dev/null)
+    else
+        echo "   当前没有正在运行的容器"
+    fi
+}
+
+# ============================================================
+# 输出欢迎信息
+# ============================================================
+
+echo "------------------------------------------------------------"
+echo -e "👋 欢迎回来, ${GREEN}$(whoami)@$(hostname)${NC}!"
+echo "------------------------------------------------------------"
+
+echo -e "⏰ 当前时间:    $(get_current_time)"
+echo -e "🆙 运行时间:    $(get_uptime)"
+echo -e "💾 内存使用:    $(get_memory)"
+echo -e "🗂️ 磁盘使用:    $(get_disk)"
+echo -e "📦 更新日志:    $(get_update_time)"
+echo -e "🖥️ 系统版本:    $(get_os_name)"
+echo "------------------------------------------------------------"
+
+show_docker
+
+echo "------------------------------------------------------------"
+
+failed_count=$(get_failed_count)
+
+if [ "$failed_count" = "无法读取" ]; then
+    echo -e "⚠️ SSH 认证失败次数：${YELLOW}无法读取认证日志${NC}"
+else
+    echo -e "⚠️ SSH 认证失败次数：${YELLOW}${failed_count}次${NC}"
 fi
 
-# 方案 C: 若日志仍无记录，退而求其次显示当前活动会话 (who)
-if [ -z "$LAST_LOGS" ] && command -v who &> /dev/null; then
-    LAST_LOGS=$(who 2>/dev/null | head -n 3 | awk '{
-        ip=$5; gsub(/[()]/, "", ip); if(ip=="") ip="local";
-        printf "  %-8s %-10s %-15s %s %s\n", $1, $2, ip, $3, $4
-    }')
+echo "✔️ 最近登录成功记录（显示最近三条）："
+get_recent_logins
+
+echo "------------------------------------------------------------"
+DISPLAY_EOF
+
+chmod 755 "$DISPLAY_SCRIPT"
+
+# 先检查显示脚本语法
+if ! bash -n "$DISPLAY_SCRIPT"; then
+    echo "错误：MOTD 显示脚本语法检查失败。"
+    exit 1
 fi
 
-if [ -n "$LAST_LOGS" ]; then
-    echo -e "\n${YELLOW}🛡️ 最近登录记录:${RESET}"
-    echo "$LAST_LOGS"
+# ------------------------------------------------------------
+# 3. 创建登录入口
+# ------------------------------------------------------------
+
+cat > "$PROFILE_SCRIPT" <<'PROFILE_EOF'
+# 仅在交互式 Shell 中显示
+case "$-" in
+    *i*) ;;
+    *) return 0 2>/dev/null || exit 0 ;;
+esac
+
+# 避免同一个 Shell 重复显示
+if [ -n "${CUSTOM_MOTD_SHOWN:-}" ]; then
+    return 0 2>/dev/null || exit 0
 fi
 
-# 7. 磁盘预警
-if [ -n "$DISK_PERCENT" ] && [ "$DISK_PERCENT" -ge 70 ] 2>/dev/null; then
-    echo -e "\n${RED}💔 警告：磁盘使用率已达到 ${DISK_PERCENT}%，请及时清理！${RESET}"
+# sudo -i 进入 root 时尝试跳过重复显示
+if [ "$(id -u)" -eq 0 ] &&
+   [ -n "${SUDO_USER:-}" ] &&
+   [ "$SUDO_USER" != "root" ]; then
+    CUSTOM_MOTD_SHOWN=1
+    export CUSTOM_MOTD_SHOWN
+    return 0 2>/dev/null || exit 0
 fi
-echo ""
-EOF
 
-# 4. 设置权限
-chmod +x $TARGET_PATH
-echo "✅ 安装成功！兼容 Debian / Ubuntu / Armbian / Alpine。请重新连接 SSH 终端验证效果。"
+CUSTOM_MOTD_SHOWN=1
+export CUSTOM_MOTD_SHOWN
+
+if [ -x /usr/local/bin/custom-motd-display.sh ]; then
+    /bin/bash /usr/local/bin/custom-motd-display.sh
+fi
+PROFILE_EOF
+
+chmod 644 "$PROFILE_SCRIPT"
+
+if ! bash -n "$PROFILE_SCRIPT"; then
+    echo "错误：MOTD 登录入口语法检查失败。"
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# 4. 安装完成
+# ------------------------------------------------------------
+
+echo "MOTD 安装完成！"
+
