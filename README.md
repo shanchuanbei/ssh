@@ -9,13 +9,13 @@
 apt update && apt install sudo -y
 ```
 
-#### 改中文
+#### 设置中文语言环境
 
 ```
 bash <(curl -sL zh.20240827.xyz)
 ```
 
-#### ssh登录信息（Debian，Ubuntu，Armbian）
+#### 设置 MOTD 登陆页面（Debian，Ubuntu，Armbian）
 
 ```
 bash <(curl -sL ssh.20240827.xyz)
